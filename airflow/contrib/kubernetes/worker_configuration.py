@@ -38,7 +38,8 @@ class WorkerConfiguration(LoggingMixin):
     def _get_init_containers(self, volume_mounts):
         """When using git to retrieve the DAGs, use the GitSync Init Container"""
         # If we're using volume claims to mount the dags, no init container is needed
-        if self.kube_config.dags_volume_claim:
+        if self.kube_config.dags_volume_claim \
+            or (not self.kube_config.git_repo and not self.kube_config.git_branch):
             return []
 
         # Otherwise, define a git-sync init container
@@ -127,45 +128,48 @@ class WorkerConfiguration(LoggingMixin):
                 volume['emptyDir'] = {}
             return volume
 
-        volumes = [
-            _construct_volume(
+        volumes = []
+        volume_mounts = []
+        volumes = []
+
+        should_use_dag_volume = self.kube_config.dags_volume_claim or (self.kube_config.git_repo and self.kube_config.git_branch)
+        if should_use_dag_volume:
+            dag_volume_mount_path = ""
+            volumes.append(_construct_volume(
                 dags_volume_name,
                 self.kube_config.dags_volume_claim
-            ),
-            _construct_volume(
+            ))
+
+            if self.kube_config.dags_volume_claim:
+                dag_volume_mount_path = self.worker_airflow_dags
+            else:
+                dag_volume_mount_path = os.path.join(
+                    self.worker_airflow_dags,
+                    self.kube_config.git_subpath
+                )
+            dags_volume_mount = {
+                'name': dags_volume_name,
+                'mountPath': dag_volume_mount_path,
+                'readOnly': True,
+            }
+            if self.kube_config.dags_volume_subpath:
+                dags_volume_mount['subPath'] = self.kube_config.dags_volume_subpath
+            volume_mounts.append(dags_volume_mount)
+            
+
+        should_use_logs_volume = True
+        if should_use_logs_volume:
+            volumes.append(_construct_volume(
                 logs_volume_name,
                 self.kube_config.logs_volume_claim
-            )
-        ]
-
-        dag_volume_mount_path = ""
-
-        if self.kube_config.dags_volume_claim:
-            dag_volume_mount_path = self.worker_airflow_dags
-        else:
-            dag_volume_mount_path = os.path.join(
-                self.worker_airflow_dags,
-                self.kube_config.git_subpath
-            )
-        dags_volume_mount = {
-            'name': dags_volume_name,
-            'mountPath': dag_volume_mount_path,
-            'readOnly': True,
-        }
-        if self.kube_config.dags_volume_subpath:
-            dags_volume_mount['subPath'] = self.kube_config.dags_volume_subpath
-
-        logs_volume_mount = {
-            'name': logs_volume_name,
-            'mountPath': self.worker_airflow_logs,
-        }
-        if self.kube_config.logs_volume_subpath:
-            logs_volume_mount['subPath'] = self.kube_config.logs_volume_subpath
-
-        volume_mounts = [
-            dags_volume_mount,
-            logs_volume_mount
-        ]
+            ))
+            logs_volume_mount = {
+                'name': logs_volume_name,
+                'mountPath': self.worker_airflow_logs,
+            }
+            if self.kube_config.logs_volume_subpath:
+                logs_volume_mount['subPath'] = self.kube_config.logs_volume_subpath
+            volume_mounts.append(logs_volume_mount)
 
         # Mount the airflow.cfg file via a configmap the user has specified
         if self.kube_config.airflow_configmap:
