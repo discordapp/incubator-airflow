@@ -36,6 +36,8 @@ spec:
     - name: serve-logs
       image: airflow_worker:latest
       command: ["airflow", "serve_logs"]
+      ports:
+        - containerPort: 8793
   restartPolicy: Never
     """
 
