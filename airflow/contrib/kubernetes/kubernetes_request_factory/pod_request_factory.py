@@ -32,6 +32,7 @@ metadata:
     app.kubernetes.io/name: airflow-worker
     app.kubernetes.io/part-of: airflow
 spec:
+  hostname: name
   subdomain: airflow-worker
   containers:
     - name: base
