@@ -17,6 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 import os
+import time
 
 from airflow import configuration
 from airflow.exceptions import AirflowException
@@ -129,7 +130,62 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         :type remote_log_location: str (path)
         """
         bkt, blob = self.parse_gcs_url(remote_log_location)
-        return self.hook.download(bkt, blob).decode('utf-8')
+        return self.gcs_download_with_retries(bkt, blob).decode('utf-8')
+
+    def gcs_download_with_retries(self, bucket, blob, max_tries=5, try_number=1):
+        """
+        Retry download operation with exponential backoff (up to 1 minute of wait time).
+        :param bucket: GCS bucket
+        :param blob: GCS blob
+        :param max_tries: Maximum number of retries before giving up and throwing
+        :param try_number: The current try number
+        :return: The content of the blob at the GCS bucket/blob location. This will throw
+        an Exception if the hook fails after max_tries attempts.
+        """
+        if try_number > max_tries:
+            raise Exception(f"Unable to perform download hook after {max_tries} attempts.")
+
+        try:
+            if self.hook.download(bucket, blob):
+                if try_number > 1:
+                    self.log.info(f'Succeeded after {try_number} attempts.')
+                return
+
+        except Exception as e:
+            self.log.error(f'Failed to download log to gcs with exception {e}')
+
+        self.log.warn('Failed to perform download hook; trying again')
+
+        time.sleep(min(60., 0.01 * (1 << try_number)))
+        self.gcs_download_with_retries(bucket, blob, max_tries, try_number + 1)
+
+    def gcs_upload_with_retries(self, bucket, blob, tmpfile_name, max_tries=5, try_number=1):
+        """
+        Retry upload operation with exponential backoff (up to 1 minute of wait time).
+        :param bucket:  GCS bucket
+        :param blob:  GCS blob
+        :param tmpfile_name: Local tempfile
+        :param max_tries: Maximum number of retries before giving up and throwing
+        :param try_number: The current try number
+        :return: True if the upload is successful. This will throw if the hook is
+        not able to fulfill the upload request after max_tries attempts.
+        """
+        if try_number > max_tries:
+            raise Exception(f"Unable to perform upload hook after {max_tries} attempts.")
+
+        try:
+            if self.hook.upload(bucket, blob, tmpfile_name):
+                if try_number > 1:
+                    self.log.info(f'Succeeded after {try_number} attempts.')
+                return True
+
+        except Exception as e:
+            self.log.error(f'Failed to upload log to gcs with exception {e}')
+
+        self.log.warn('Failed to perform upload hook; trying again')
+
+        time.sleep(min(60., 0.01 * (1 << try_number)))
+        self.gcs_upload_with_retries(bucket, blob, tmpfile_name, max_tries, try_number + 1)
 
     def gcs_write(self, log, remote_log_location, append=True):
         """
@@ -160,6 +216,7 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
                 # upload from within the file context (it hasn't been
                 # closed).
                 tmpfile.flush()
+                self.gcs_upload_with_retries(bkt, blob, tmpfile.name, max_tries=5)
                 self.hook.upload(bkt, blob, tmpfile.name)
         except Exception as e:
             self.log.error('Could not write logs to %s: %s', remote_log_location, e)
