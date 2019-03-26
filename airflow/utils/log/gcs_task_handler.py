@@ -18,6 +18,7 @@
 # under the License.
 import os
 import time
+from google.cloud import storage
 
 from airflow import configuration
 from airflow.exceptions import AirflowException
@@ -39,6 +40,7 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         self._hook = None
         self.closed = False
         self.upload_on_close = True
+        self._gcs_client = None
 
     def _build_hook(self):
         remote_conn_id = configuration.conf.get('core', 'REMOTE_LOG_CONN_ID')
@@ -59,6 +61,12 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         if self._hook is None:
             self._hook = self._build_hook()
         return self._hook
+
+    @property
+    def gcs_client(self):
+        if self._gcs_client is None:
+            self._gcs_client = storage.Client()
+        return self._gcs_client
 
     def set_context(self, ti):
         super(GCSTaskHandler, self).set_context(ti)
@@ -187,6 +195,32 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         time.sleep(min(60., 0.01 * (1 << try_number)))
         self.gcs_upload_with_retries(bucket, blob, tmpfile_name, max_tries, try_number + 1)
 
+    def gcs_client_upload_with_retries(self, bucket_name, blob_name, log, max_tries=5, try_number = 1):
+        """
+        Retry upload operation with exponential backoff (up to 1 minute of wait time).
+        :param bucket:  GCS bucket
+        :param blob:  GCS blob
+        :param log: Log payload to upload
+        :param max_tries: Maximum number of retries before giving up and throwing
+        :param try_number: The current try number
+        :return: True if the upload is successful. This will throw if the hook is
+        not able to fulfill the upload request after max_tries attempts.
+        """
+        if try_number > max_tries:
+            raise Exception(f"Unable to perform gcs upload after {max_tries} attempts.")
+
+        try:
+            blob = self.gcs_client.bucket(bucket_name).blob(blob_name)
+            blob.upload_from_string(log)
+
+        except Exception as e:
+            self.log.error(f'Failed to upload log with gcs_client to gcs with exception {e}')
+
+        self.log.warn('Failed to perform upload hook; trying again')
+
+        time.sleep(min(60., 0.01 * (1 << try_number)))
+        self.gcs_upload_with_retries(bucket_name, blob_name, log, max_tries, try_number + 1)
+
     def gcs_write(self, log, remote_log_location, append=True):
         """
         Writes the log to the remote_log_location. Fails silently if no hook
@@ -209,17 +243,23 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
 
         try:
             bkt, blob = self.parse_gcs_url(remote_log_location)
-            from tempfile import NamedTemporaryFile
-            with NamedTemporaryFile(mode='w+') as tmpfile:
-                tmpfile.write(log)
-                # Force the file to be flushed, since we're doing the
-                # upload from within the file context (it hasn't been
-                # closed).
-                tmpfile.flush()
-                self.gcs_upload_with_retries(bkt, blob, tmpfile.name, max_tries=5)
-                self.hook.upload(bkt, blob, tmpfile.name)
         except Exception as e:
-            self.log.error('Could not write logs to %s: %s', remote_log_location, e)
+            self.log.error(f'Could not parse {remote_log_location}', e)
+        else:
+            try:
+                from tempfile import NamedTemporaryFile
+                with NamedTemporaryFile(mode='w+') as tmpfile:
+                    tmpfile.write(log)
+                    # Force the file to be flushed, since we're doing the
+                    # upload from within the file context (it hasn't been
+                    # closed).
+                    tmpfile.flush()
+                    self.gcs_upload_with_retries(bkt, blob, tmpfile.name)
+            except Exception as e:
+                self.log.error('Could not write logs to %s: %s', remote_log_location, e)
+
+                ### try again with plain-old gcs client
+                self.gcs_client_upload_with_retries(bkt, blob, log)
 
     @staticmethod
     def parse_gcs_url(gsurl):

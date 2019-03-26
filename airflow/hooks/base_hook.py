@@ -45,6 +45,21 @@ class BaseHook(LoggingMixin):
         pass
 
     @classmethod
+    def _get_connection_from_db_with_retries(cls, conn_id, max_tries=5):
+        try_number = 1
+        while try_number <= max_tries:
+            try:
+                db = cls._get_connection_from_env(conn_id)
+                if try_number > 1:
+                    cls.log.info(f'Successfully fetched connection from db after {try_number} attempts.')
+                return db
+            except Exception:
+                cls.log.wan(f'Failed to fetch connection from db. Attempt #{try_number}/{max_tries}')
+
+            try_number += 1
+        raise AirflowException(f'Failed to fetch the conn_id {conn_id} after {max_tries} attempts.')
+
+    @classmethod
     @provide_session
     def _get_connections_from_db(cls, conn_id, session=None):
         db = (
