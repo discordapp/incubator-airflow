@@ -54,7 +54,7 @@ class BaseHook(LoggingMixin):
                     cls.log.info(f'Successfully fetched connection from db after {try_number} attempts.')
                 return db
             except Exception:
-                cls.log.wan(f'Failed to fetch connection from db. Attempt #{try_number}/{max_tries}')
+                cls.log.warn(f'Failed to fetch connection from db. Attempt #{try_number}/{max_tries}')
 
             try_number += 1
         raise AirflowException(f'Failed to fetch the conn_id {conn_id} after {max_tries} attempts.')

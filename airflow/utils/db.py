@@ -26,6 +26,7 @@ from functools import wraps
 
 import os
 import contextlib
+import time
 
 from airflow import settings
 from airflow.utils.log.logging_mixin import LoggingMixin
@@ -49,7 +50,7 @@ def create_session():
         session.close()
 
 
-def provide_session(func):
+def provide_session(func, max_tries=5):
     """
     Function decorator that provides a session if it isn't provided.
     If you want to reuse a session or run the function as part of a
@@ -64,13 +65,19 @@ def provide_session(func):
         session_in_args = arg_session in func_params and \
             func_params.index(arg_session) < len(args)
         session_in_kwargs = arg_session in kwargs
-
-        if session_in_kwargs or session_in_args:
-            return func(*args, **kwargs)
-        else:
-            with create_session() as session:
-                kwargs[arg_session] = session
-                return func(*args, **kwargs)
+        try_number = 1
+        while try_number < max_tries:
+            try:
+                if session_in_kwargs or session_in_args:
+                    return func(*args, **kwargs)
+                else:
+                    with create_session() as session:
+                        kwargs[arg_session] = session
+                        return func(*args, **kwargs)
+            except Exception as e:
+                log.warn(f'Try {try_number}/{max_tries} failed to perform db action.', e)
+                time.sleep(min(30., .01 * (1 << try_number)))
+        raise Exception(f'Failed to perform db action after {max_tries} attempts.')
 
     return wrapper
 
