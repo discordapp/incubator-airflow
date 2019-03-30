@@ -184,7 +184,7 @@ def configure_orm(disable_connection_pool=False):
     engine_args['encoding'] = engine_args['encoding'].__str__()
 
     if 'postgres' in SQL_ALCHEMY_CONN:
-        # set connect/statement timouts
+        # set connect/statement timeouts
         connect_args = {}
 
         try:
