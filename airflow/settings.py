@@ -183,6 +183,23 @@ def configure_orm(disable_connection_pool=False):
     # For Python2 we get back a newstr and need a str
     engine_args['encoding'] = engine_args['encoding'].__str__()
 
+    if 'postgres' in SQL_ALCHEMY_CONN:
+        # set connect/statement timeouts
+        connect_args = {}
+
+        try:
+            connect_timeout_seconds = conf.getint('core', 'SQL_ALCHEMY_CONNECT_TIMEOUT_SECONDS')
+        except conf.AirflowConfigException:
+            connect_timeout_seconds = 0
+        connect_args['connect_timeout'] = connect_timeout_seconds
+
+        try:
+            statement_timeout_seconds = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_TIMEOUT_SECONDS')
+        except conf.AirflowConfigException:
+            statement_timeout_seconds = 0
+        connect_args['options'] = '-c statement_timeout={}'.format(statement_timeout_seconds * 1000)
+        engine_args['connect_args'] = connect_args
+
     engine = create_engine(SQL_ALCHEMY_CONN, **engine_args)
     reconnect_timeout = conf.getint('core', 'SQL_ALCHEMY_RECONNECT_TIMEOUT')
     setup_event_handlers(engine, reconnect_timeout)
