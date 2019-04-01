@@ -27,9 +27,10 @@ import logging
 import os
 import pendulum
 import socket
+import time
 
 from sqlalchemy import create_engine, exc
-from sqlalchemy.orm import scoped_session, sessionmaker
+from sqlalchemy.orm import scoped_session, sessionmaker, Query
 from sqlalchemy.pool import NullPool
 
 from airflow import configuration as conf
@@ -49,6 +50,36 @@ try:
 except Exception:
     pass
 log.info("Configured default timezone %s" % TIMEZONE)
+
+
+class RetryingQuery(Query):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        try:
+            self.max_tries = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRIES')
+        except conf.AirflowConfigException:
+            self.max_tries = 10
+
+        try:
+            self.max_retry_time_seconds = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRY_SECONDS')
+        except conf.AirflowConfigException:
+            self.max_retry_time_seconds = 30
+
+    def __iter__(self):
+        try_number = 1
+        while try_number <= self.max_tries:
+            try:
+                return super().__iter__()
+
+            except Exception as ex:
+                log.warning(f'Try {try_number}/{self.max_tries} failed to perform db action.', exc_info=ex)
+                time.sleep(min(float(self.max_retry_time_seconds), 0.1 * (1 << try_number)))
+
+            try_number += 1
+
+        raise Exception(f'Failed to perform db action after {self.max_tries} attempts.')
 
 
 class DummyStatsLogger(object):
@@ -208,7 +239,8 @@ def configure_orm(disable_connection_pool=False):
         sessionmaker(autocommit=False,
                      autoflush=False,
                      bind=engine,
-                     expire_on_commit=False))
+                     expire_on_commit=False,
+                     query_cls=RetryingQuery))
 
 
 def dispose_orm():
