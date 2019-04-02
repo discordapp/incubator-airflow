@@ -57,10 +57,7 @@ class RetryingQuery(Query):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        try:
-            self.max_tries = max(1, conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES'))
-        except conf.AirflowConfigException:
-            self.max_tries = 1
+        self.max_tries = 1 + conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRIES')
 
         try:
             self.max_retry_time_seconds = max(0, conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRY_SECONDS'))
@@ -81,7 +78,8 @@ class RetryingQuery(Query):
 
             try_number += 1
 
-        raise Exception(f'Failed to perform db action after {self.max_tries} attempts.') from last_exc
+        log.error(f'Failed to perform db action after {self.max_tries} attempts.')
+        raise last_exc
 
 
 class DummyStatsLogger(object):
@@ -217,10 +215,11 @@ def configure_orm(disable_connection_pool=False):
     engine_args['encoding'] = engine_args['encoding'].__str__()
 
     # Use the RetryingQuery subclass to perform retries against the database
-    # when the maximum number of tries is greater than 1.
+    # when the maximum number of total tries is greater than 1 (i.e. max_retries > 0).
     try:
-        if conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES') > 1:
+        if conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRIES') > 0:
             query_cls = RetryingQuery
+
     except conf.AirflowConfigException:
         query_cls = Query
 
