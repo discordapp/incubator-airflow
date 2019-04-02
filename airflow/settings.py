@@ -58,12 +58,12 @@ class RetryingQuery(Query):
         super().__init__(*args, **kwargs)
 
         try:
-            self.max_tries = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES')
+            self.max_tries = max(1, conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES'))
         except conf.AirflowConfigException:
-            self.max_tries = 10
+            self.max_tries = 1
 
         try:
-            self.max_retry_time_seconds = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRY_SECONDS')
+            self.max_retry_time_seconds = max(0, conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRY_SECONDS'))
         except conf.AirflowConfigException:
             self.max_retry_time_seconds = 30
 
@@ -216,13 +216,13 @@ def configure_orm(disable_connection_pool=False):
     # For Python2 we get back a newstr and need a str
     engine_args['encoding'] = engine_args['encoding'].__str__()
 
-    # setup the default query_cls
-    query_cls = Query
+    # Use the RetryingQuery subclass to perform retries against the database
+    # when the maximum number of tries is greater than 1.
     try:
-        if conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES') > 0:
+        if conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES') > 1:
             query_cls = RetryingQuery
     except conf.AirflowConfigException:
-        pass
+        query_cls = Query
 
     if 'postgres' in SQL_ALCHEMY_CONN:
         # set connect/statement timeouts
