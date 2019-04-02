@@ -58,7 +58,7 @@ class RetryingQuery(Query):
         super().__init__(*args, **kwargs)
 
         try:
-            self.max_tries = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRIES')
+            self.max_tries = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES')
         except conf.AirflowConfigException:
             self.max_tries = 10
 
@@ -69,17 +69,19 @@ class RetryingQuery(Query):
 
     def __iter__(self):
         try_number = 1
+        last_exc = None
         while try_number <= self.max_tries:
             try:
                 return super().__iter__()
 
             except Exception as ex:
                 log.warning(f'Try {try_number}/{self.max_tries} failed to perform db action.', exc_info=ex)
+                last_exc = ex
                 time.sleep(min(float(self.max_retry_time_seconds), 0.1 * (1 << try_number)))
 
             try_number += 1
 
-        raise Exception(f'Failed to perform db action after {self.max_tries} attempts.')
+        raise Exception(f'Failed to perform db action after {self.max_tries} attempts.') from last_exc
 
 
 class DummyStatsLogger(object):
@@ -214,22 +216,32 @@ def configure_orm(disable_connection_pool=False):
     # For Python2 we get back a newstr and need a str
     engine_args['encoding'] = engine_args['encoding'].__str__()
 
+    # setup the default query_cls
+    query_cls = Query
+    try:
+        if conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_TRIES') > 0:
+            query_cls = RetryingQuery
+    except conf.AirflowConfigException:
+        pass
+
     if 'postgres' in SQL_ALCHEMY_CONN:
         # set connect/statement timeouts
         connect_args = {}
 
         try:
             connect_timeout_seconds = conf.getint('core', 'SQL_ALCHEMY_CONNECT_TIMEOUT_SECONDS')
+            connect_args['connect_timeout'] = connect_timeout_seconds
         except conf.AirflowConfigException:
-            connect_timeout_seconds = 0
-        connect_args['connect_timeout'] = connect_timeout_seconds
+            pass
 
         try:
             statement_timeout_seconds = conf.getint('core', 'SQL_ALCHEMY_STATEMENT_TIMEOUT_SECONDS')
+            connect_args['options'] = '-c statement_timeout={}'.format(statement_timeout_seconds * 1000)
         except conf.AirflowConfigException:
-            statement_timeout_seconds = 0
-        connect_args['options'] = '-c statement_timeout={}'.format(statement_timeout_seconds * 1000)
-        engine_args['connect_args'] = connect_args
+            pass
+
+        if len(connect_args) > 0:
+            engine_args['connect_args'] = connect_args
 
     engine = create_engine(SQL_ALCHEMY_CONN, **engine_args)
     reconnect_timeout = conf.getint('core', 'SQL_ALCHEMY_RECONNECT_TIMEOUT')
@@ -240,7 +252,7 @@ def configure_orm(disable_connection_pool=False):
                      autoflush=False,
                      bind=engine,
                      expire_on_commit=False,
-                     query_cls=RetryingQuery))
+                     query_cls=query_cls))
 
 
 def dispose_orm():
