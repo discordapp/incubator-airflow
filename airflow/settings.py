@@ -216,6 +216,7 @@ def configure_orm(disable_connection_pool=False):
 
     # Use the RetryingQuery subclass to perform retries against the database
     # when the maximum number of total tries is greater than 1 (i.e. max_retries > 0).
+    query_cls = Query
     try:
         if conf.getint('core', 'SQL_ALCHEMY_STATEMENT_MAX_RETRIES') > 0:
             query_cls = RetryingQuery
