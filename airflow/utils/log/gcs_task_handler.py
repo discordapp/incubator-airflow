@@ -85,7 +85,7 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
     def gcs_client(self):
         if self._gcs_client is None:
             self._gcs_client = self._build_gcs_client()
-        return self.gcs_client
+        return self._gcs_client
 
     def set_context(self, ti):
         super(GCSTaskHandler, self).set_context(ti)
