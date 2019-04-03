@@ -36,8 +36,10 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         self.remote_base = gcs_log_folder
         self.log_relative_path = ''
         self._hook = None
+        self._gcs_client = None
         self.closed = False
         self.upload_on_close = True
+        self._use_hook = configuration.conf.getboolean('core', 'USE_GOOGLE_CLOUD_STORAGE_HOOK')
 
     def _build_hook(self):
         remote_conn_id = configuration.conf.get('core', 'REMOTE_LOG_CONN_ID')
@@ -53,11 +55,37 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
                 'and the GCS connection exists.', remote_conn_id, str(e)
             )
 
+    def _build_gcs_client(self):
+        try:
+            from google.cloud import storage
+            return storage.Client()
+        except Exception as e:
+            self.log.error(
+                'Could not create a google.cloud.storage.Client with the default '
+                'parameters inferred from the environment. \n\nPlease make sure that '
+                'google-cloud-storage is installed. Reconfiguring to use a '
+                'GoogleCloudStorageHook instead.', exc_info=e
+            )
+            self._use_hook = True
+
+    @property
+    def use_hook(self):
+        if self._use_hook:
+            return True
+
+        return self.gcs_client is not None
+
     @property
     def hook(self):
         if self._hook is None:
             self._hook = self._build_hook()
         return self._hook
+
+    @property
+    def gcs_client(self):
+        if self._gcs_client is None:
+            self._gcs_client = self._build_gcs_client()
+        return self.gcs_client
 
     def set_context(self, ti):
         super(GCSTaskHandler, self).set_context(ti)
@@ -129,7 +157,9 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
         :type remote_log_location: str (path)
         """
         bkt, blob = self.parse_gcs_url(remote_log_location)
-        return self.hook.download(bkt, blob).decode('utf-8')
+        if self.use_hook:
+            return self.hook.download(bkt, blob).decode('utf-8')
+        return self.gcs_client.bucket(bkt).blob(blob).download_as_string().decode('utf-8')
 
     def gcs_write(self, log, remote_log_location, append=True):
         """
@@ -160,7 +190,10 @@ class GCSTaskHandler(FileTaskHandler, LoggingMixin):
                 # upload from within the file context (it hasn't been
                 # closed).
                 tmpfile.flush()
-                self.hook.upload(bkt, blob, tmpfile.name)
+                if self.use_hook:
+                    self.hook.upload(bkt, blob, tmpfile.name)
+                else:
+                    self.gcs_client.bucket(bkt).blob(blob).upload_from_filename(tmpfile.name)
         except Exception as e:
             self.log.error('Could not write logs to %s: %s', remote_log_location, e)
 
