@@ -243,5 +243,5 @@ class KubernetesPodOperator(BaseOperator):
         self.configmaps = configmaps or []
         self.security_context = security_context or {}
         self.pod_runtime_info_envs = pod_runtime_info_envs or []
-        self.dnspolicy = dnspolicy,
+        self.dnspolicy = dnspolicy
         self.host_aliases = host_aliases or []
