@@ -69,7 +69,7 @@ class KubernetesExecutorConfig:
                "volume_mounts={}, tolerations={}, labels={})" \
             .format(KubernetesExecutorConfig.__name__, self.image, self.image_pull_policy,
                     self.request_memory, self.request_cpu, self.limit_memory,
-                    self.limit_cpu, self.limit_gpu self.gcp_service_account_key, self.node_selectors,
+                    self.limit_cpu, self.limit_gpu, self.gcp_service_account_key, self.node_selectors,
                     self.affinity, self.annotations, self.volumes, self.volume_mounts,
                     self.tolerations, self.labels)
 
