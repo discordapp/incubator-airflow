@@ -110,7 +110,7 @@ class KubernetesExecutorConfig:
             'request_cpu': self.request_cpu,
             'limit_memory': self.limit_memory,
             'limit_cpu': self.limit_cpu,
-            'limit_cpu': self.limit_gpu,
+            'limit_gpu': self.limit_gpu,
             'gcp_service_account_key': self.gcp_service_account_key,
             'node_selectors': self.node_selectors,
             'affinity': self.affinity,
