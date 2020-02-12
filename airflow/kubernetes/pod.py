@@ -24,12 +24,14 @@ class Resources:
             request_ephemeral_storage=None,
             limit_memory=None,
             limit_cpu=None,
+            limit_gpu=None,
             limit_ephemeral_storage=None):
         self.request_memory = request_memory
         self.request_cpu = request_cpu
         self.request_ephemeral_storage = request_ephemeral_storage
         self.limit_memory = limit_memory
         self.limit_cpu = limit_cpu
+        self.limit_gpu = limit_gpu
         self.limit_ephemeral_storage = limit_ephemeral_storage
 
     def is_empty_resource_request(self):
@@ -38,6 +40,7 @@ class Resources:
     def has_limits(self):
         return self.limit_cpu is not None or \
             self.limit_memory is not None or \
+            self.limit_gpu is not None or \
             self.limit_ephemeral_storage is not None
 
     def has_requests(self):

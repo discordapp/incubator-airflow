@@ -244,7 +244,8 @@ class TestKubernetesRequestFactory(unittest.TestCase):
             },
             'limits': {
                 'memory': '2Gi',
-                'cpu': 2
+                'cpu': 2,
+                'nvidia/com.gpu': 1
             },
         }
         KubernetesRequestFactory.extract_resources(pod, self.input_req)
