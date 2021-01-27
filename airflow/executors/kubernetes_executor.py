@@ -766,6 +766,39 @@ class KubernetesExecutor(BaseExecutor, LoggingMixin):
             for service_account in name_path_pair_list:
                 _create_or_update_secret(service_account['name'], service_account['path'])
 
+    def _create_worker_service(self):
+        service = kubernetes.client.V1Service(
+            metadata=kubernetes.client.V1ObjectMeta(
+                name='airflow-worker'
+            ),
+            spec=kubernetes.client.V1ServiceSpec(
+                cluster_ip='None',
+                selector={
+                    'app.kubernetes.io/name': 'airflow-worker',
+                },
+                ports=[
+                    kubernetes.client.V1ServicePort(
+                        name='logs',
+                        protocol='TCP',
+                        port=8793
+                    )
+                ]
+            )
+        )
+
+        try:
+            return self.kube_client.create_namespaced_service(
+                self.kube_config.executor_namespace, service
+            )
+        except ApiException as e:
+            if e.status == 409:
+                return self.kube_client.patch_namespaced_service(
+                    service.metadata.name,
+                    self.kube_config.executor_namespace, service
+                )
+
+
+
     def start(self):
         """Starts the executor"""
         self.log.info('Start Kubernetes executor')

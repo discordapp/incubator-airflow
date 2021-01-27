@@ -1214,7 +1214,12 @@ class DagFileProcessorManager(LoggingMixin):
                 )
                 self._file_stats[file_path] = stat
             else:
-                running_processors[file_path] = processor
+                # Terminate the processor if it has been running for more than 15 seconds
+                if (timezone.utcnow() - processor.start_time).total_seconds() > 15:
+                    processor.terminate()
+                else:
+                    running_processors[file_path] = processor
+
         self._processors = running_processors
 
         self.log.debug("%s/%s DAG parsing processes running",

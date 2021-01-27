@@ -98,6 +98,8 @@ class KubernetesPodOperator(BaseOperator):  # pylint: disable=too-many-instance-
         Possible keys are request_memory, request_cpu, limit_memory, limit_cpu,
         and limit_gpu, which will be used to generate airflow.kubernetes.pod.Resources.
         See also kubernetes.io/docs/concepts/configuration/manage-compute-resources-container
+    :param resources: An instance of Resources or a dict containing a group of resources requests and limits
+    :type resources: Resources or dict
     :type resources: dict
     :param affinity: A dict containing a group of affinity scheduling rules.
     :type affinity: dict
@@ -354,6 +356,8 @@ class KubernetesPodOperator(BaseOperator):  # pylint: disable=too-many-instance-
     def _set_resources(resources):
         if not resources:
             return []
+        if isinstance(resources, Resources):
+            return resources
         return [Resources(**resources)]
 
     def _set_name(self, name):
